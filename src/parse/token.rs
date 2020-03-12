@@ -8,7 +8,8 @@ use std::cell::RefCell;
 pub enum Literal {
     Keyword(Keyword),
     Identifier(String),
-    VariableDeclaration(String, String),
+    VariableDef(String, String),
+    Constructor(String, Box<Token>),
     Number(Number),
     String(String),
     Comment(String),
@@ -28,6 +29,7 @@ pub enum Token {
     Block(Brace, usize),
     AgrandizedString(String, Box<Token>, String),
     TypeDef(Literal, Literal, Box<Token>), //Classifier, Identifier, Body
+    Impl(Literal, Box<Token>),             // Identifier, Body
     MethodDef(Keyword, String, Box<Token>, Box<Token>),
     Delimiter,
 }
@@ -49,10 +51,13 @@ pub enum TokenParseError {
     ExpectedIdentifierNameAfterTypeDef(usize),
     ExpectedTypeClassifierAfterTypeDefIdentifier(usize),
     ExpectedTypeBodyAfterTypeDef(usize),
+    ExpectedImplBodyAfterImplDef(usize),
     TypeRequiresNameAndClassifier,
     ExpectedBodyAfterMethodSignature,
     ExpectedParametersAfterMethodName,
     ExpectedMethodName,
+    ExpectedVoidIdentifier,
+    ExpectedIdentifier,
 }
 
 pub fn parse_lexs(input: &[u8]) -> Result<Vec<Lex>, TokenParseError> {
@@ -132,10 +137,15 @@ fn next_token<'a>(
             if *index + 1 < lexes.len() {
                 *index = *index + 1;
                 match lexes.get(*index).unwrap() {
-                    Lex::Identifier(variable_name, _) => Ok(Literal::as_type_declaration(
+                    Lex::Identifier(variable_name, _) => Ok(Literal::as_variable_def(
                         name.clone(),
                         variable_name.clone(),
                     )),
+                    Lex::Brace(Brace::Brace, BraceStatus::Open(len), level, pos) => {
+                        let parameters =
+                            push_braced_block(&Brace::Brace, *len, *level, index, lexes, context)?;
+                        Ok(Literal::as_parameterized(name.clone(), parameters))
+                    }
                     _ => {
                         *index = *index - 1;
                         Ok(Literal::as_identifier(name.clone()))
@@ -145,41 +155,14 @@ fn next_token<'a>(
                 Ok(Literal::as_identifier(name.clone()))
             }
         }
+        Lex::Keyword(Keyword::Impl, pos) => push_impl_def(index, pos, length, lexes, context),
         Lex::Keyword(Keyword::Calc, _) => {
             push_method_declaration(Keyword::Calc, index, lexes, context)
         }
         Lex::Keyword(Keyword::Trans, _) => {
             push_method_declaration(Keyword::Trans, index, lexes, context)
         }
-        Lex::Keyword(Keyword::Type, pos) => {
-            if *index + 4 >= lexes.len() {
-                return Err(TokenParseError::TypeRequiresNameAndClassifier);
-            }
-            *index = *index + 1;
-            if let Some(Lex::Identifier(name, name_pos)) = lexes.get(*index) {
-                *index = *index + 1;
-                if let Some(Lex::Keyword(classifier, _)) = lexes.get(*index) {
-                    *index = *index + 1;
-                    next_token(lexes, index, length, context)?;
-                    if let Some(body_box) = context.pop_token() {
-                        Ok(Box::new(Token::TypeDef(
-                            Literal::Keyword(*classifier),
-                            Literal::Identifier(name.clone()),
-                            match *body_box {
-                                Token::Block(_, _) => Ok(body_box),
-                                _ => Err(TokenParseError::ExpectedTypeBodyAfterTypeDef(*pos)),
-                            }?,
-                        )))
-                    } else {
-                        Err(TokenParseError::ExpectedTypeBodyAfterTypeDef(*pos))
-                    }
-                } else {
-                    Err(TokenParseError::ExpectedTypeClassifierAfterTypeDefIdentifier(*pos))
-                }
-            } else {
-                Err(TokenParseError::ExpectedIdentifierNameAfterTypeDef(*pos))
-            }
-        }
+        Lex::Keyword(Keyword::Type, pos) => push_type_def(index, pos, length, lexes, context),
         Lex::Keyword(key, _) => Ok(Literal::as_keyword(key.clone())),
         Lex::Integer(i, _) => Ok(Literal::as_integer(i.parse::<i64>().unwrap())),
         Lex::Float(f, _) => Ok(Literal::as_float(f.parse::<f64>().unwrap())),
@@ -215,7 +198,10 @@ fn next_token<'a>(
                 Ok(OperatorGroup::as_uni_op(*op, *pos, lexes, index, context)?)
             }
         }
-        _ => Err(TokenParseError::UnsupportedTokenizerOperator),
+        _ => {
+            println!("{:?}", lexes.get(*index).unwrap());
+            Err(TokenParseError::UnsupportedTokenizerOperator)
+        }
     } {
         Ok(result) => {
             context.push_token(result);
@@ -223,6 +209,74 @@ fn next_token<'a>(
             Ok(())
         }
         Err(err) => Err(err),
+    }
+}
+
+fn push_impl_def(
+    index: &mut usize,
+    pos: &usize,
+    length: usize,
+    lexes: &Vec<Lex>,
+    context: &mut TokenizerContext,
+) -> Result<Box<Token>, TokenParseError> {
+    println!("Impl def");
+    *index += 1;
+    let identifier = match lexes.get(*index) {
+        Some(Lex::Brace(Brace::Brace, BraceStatus::Open(_), _, _)) => {
+            *index += 1;
+            if let Some(Lex::Brace(Brace::Brace, BraceStatus::Close, _, _)) = lexes.get(*index) {
+                Ok(Literal::Void)
+            } else {
+                Err(TokenParseError::ExpectedVoidIdentifier)
+            }
+        }
+        Some(Lex::Identifier(name, _)) => Ok(Literal::Identifier(name.clone())),
+        _ => Err(TokenParseError::ExpectedIdentifier),
+    }?;
+    *index = *index + 1;
+    if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, pos)) = lexes.get(*index)
+    {
+        let body = push_braced_block(&Brace::Bracket, *len, *level, index, lexes, context)?;
+        Ok(Box::new(Token::Impl(identifier, body)))
+    } else {
+        Err(TokenParseError::ExpectedImplBodyAfterImplDef(*pos))
+    }
+}
+
+fn push_type_def(
+    index: &mut usize,
+    pos: &usize,
+    length: usize,
+    lexes: &Vec<Lex>,
+    context: &mut TokenizerContext,
+) -> Result<Box<Token>, TokenParseError> {
+    if *index + 4 >= lexes.len() {
+        return Err(TokenParseError::TypeRequiresNameAndClassifier);
+    }
+    *index = *index + 1;
+    if let Some(Lex::Identifier(name, name_pos)) = lexes.get(*index) {
+        *index = *index + 1;
+        if let Some(Lex::Keyword(classifier, classifier_pos)) = lexes.get(*index) {
+            *index = *index + 1;
+            if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, pos)) =
+                lexes.get(*index)
+            {
+                let body = push_braced_block(&Brace::Bracket, *len, *level, index, lexes, context)?;
+                Ok(Box::new(Token::TypeDef(
+                    Literal::Keyword(*classifier),
+                    Literal::Identifier(name.clone()),
+                    body,
+                )))
+            } else {
+                Err(TokenParseError::ExpectedTypeBodyAfterTypeDef(
+                    *classifier_pos,
+                ))
+            }
+        } else {
+            Err(TokenParseError::ExpectedTypeClassifierAfterTypeDefIdentifier(*name_pos))
+        }
+    } else {
+        Err(TokenParseError::ExpectedIdentifierNameAfterTypeDef(*pos))
     }
 }
 
@@ -287,10 +341,11 @@ impl Literal {
     fn as_keyword(keyword: Keyword) -> Box<Token> {
         Box::new(Token::Literal(Literal::Keyword(keyword)))
     }
-    fn as_type_declaration(type_name: String, name: String) -> Box<Token> {
-        Box::new(Token::Literal(Literal::VariableDeclaration(
-            type_name, name,
-        )))
+    fn as_variable_def(type_name: String, name: String) -> Box<Token> {
+        Box::new(Token::Literal(Literal::VariableDef(type_name, name)))
+    }
+    fn as_parameterized(name: String, parameters: Box<Token>) -> Box<Token> {
+        Box::new(Token::Literal(Literal::Constructor(name, parameters)))
     }
 
     fn as_integer(i: i64) -> Box<Token> {
@@ -374,6 +429,45 @@ impl OperatorGroup {
 mod tests {
     use super::*;
     #[test]
+    fn test_parse_impl_tokens() -> Result<(), TokenParseError> {
+        let context = parse_tokens(b"impl () { calc start() { Point(1,2) => print () } }")?;
+        context
+            .get_scope(0)
+            .unwrap()
+            .assert_eq(vec![Box::new(Token::Impl(
+                Literal::Void,
+                Box::new(Token::Block(Brace::Bracket, 1)),
+            ))]);
+        context
+            .get_scope(1)
+            .unwrap()
+            .assert_eq(vec![Box::new(Token::MethodDef(
+                Keyword::Calc,
+                "start".to_string(),
+                Box::new(Token::Block(Brace::Brace, 2)),
+                Box::new(Token::Block(Brace::Bracket, 3)),
+            ))]);
+        context
+            .get_scope(3)
+            .unwrap()
+            .assert_eq(vec![Box::new(Token::Operator(OperatorGroup::BiOperator(
+                Operator::Into,
+                Literal::as_parameterized(
+                    "Point".to_string(),
+                    Box::new(Token::Block(Brace::Brace, 4)),
+                ),
+                Literal::as_parameterized(
+                    "print".to_string(),
+                    Box::new(Token::Block(Brace::Brace, 5)),
+                ),
+            )))]);
+        context.get_scope(4).unwrap().assert_eq(vec![
+            Box::new(Token::Literal(Literal::Number(Number::Integer(1)))),
+            Box::new(Token::Literal(Literal::Number(Number::Integer(2)))),
+        ]);
+        Ok(())
+    }
+    #[test]
     fn test_parse_type_tokens() -> Result<(), TokenParseError> {
         let context = parse_tokens(b"type Geheusie data { int x, int y, }")?;
         let expected_scope_index = 1;
@@ -388,11 +482,11 @@ mod tests {
             .get_scope(expected_scope_index)
             .unwrap()
             .assert_eq(vec![
-                Box::new(Token::Literal(Literal::VariableDeclaration(
+                Box::new(Token::Literal(Literal::VariableDef(
                     "int".to_string(),
                     "x".to_string(),
                 ))),
-                Box::new(Token::Literal(Literal::VariableDeclaration(
+                Box::new(Token::Literal(Literal::VariableDef(
                     "int".to_string(),
                     "y".to_string(),
                 ))),

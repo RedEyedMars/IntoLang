@@ -192,6 +192,7 @@ impl OperatorContinuation {
             OperatorContinuation::Ampersand(_) => None,
             OperatorContinuation::Pipe(_) => None,
             OperatorContinuation::Arrow(_) => None,
+            OperatorContinuation::Into(_) => None,
             OperatorContinuation::Dot(_) => match c as char {
                 '.' => Some(OperatorContinuation::DoubleDot(index)),
                 _ => None,

@@ -62,12 +62,16 @@ impl NumberClassification {
                 true => NumberClassification::Integer(NumberStopCondition::CanContinue),
                 false => match c {
                     46 => NumberClassification::Floating(NumberStopCondition::CanContinue),
+                    102 => NumberClassification::Floating(NumberStopCondition::MustEnd),
                     _ => NumberClassification::Integer(NumberStopCondition::NotNumber),
                 },
             },
             NumberClassification::Floating(_) => match is_number_start(c) {
                 true => NumberClassification::Floating(NumberStopCondition::CanContinue),
-                false => NumberClassification::Floating(NumberStopCondition::NotNumber),
+                false => match c {
+                    102 => NumberClassification::Floating(NumberStopCondition::MustEnd),
+                    _ => NumberClassification::Floating(NumberStopCondition::NotNumber),
+                },
             },
         }
     }

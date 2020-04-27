@@ -1,15 +1,11 @@
 use crate::parse::constant::{Brace, Keyword, Number, Operator};
-use crate::parse::context::{BraceState, ContextScope, TokenizerContext};
+use crate::parse::context::{BraceState, TokenizerContext};
 use crate::parse::lex::{lex, BraceContext, BraceStatus, Lex, LexParseError};
 
-use std::cell::RefCell;
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub enum Literal {
     Keyword(Keyword),
     Identifier(String),
-    VariableDef(String, String),
-    Constructor(String, Box<Token>),
     Number(Number),
     String(String),
     Comment(String),
@@ -28,6 +24,8 @@ pub enum Token {
     Operator(OperatorGroup),
     Block(Brace, usize),
     AgrandizedString(String, Box<Token>, String),
+    Constructor(String, Box<Token>),
+    VariableDef(Literal, String),
     TypeDef(Literal, Literal, Box<Token>), //Classifier, Identifier, Body
     Impl(Literal, Box<Token>),             // Identifier, Body
     MethodDef(Keyword, String, Box<Token>, Box<Token>),
@@ -50,7 +48,7 @@ pub enum TokenParseError {
     AttemptedToRetrieveScopeFromABraceStateOfNone,
     ExpectedIdentifierNameAfterTypeDef(usize),
     ExpectedTypeClassifierAfterTypeDefIdentifier(usize),
-    ExpectedTypeBodyAfterTypeDef(usize),
+    ExpectedTypeBodyAfterTypeDef(usize, String, String),
     ExpectedImplBodyAfterImplDef(usize),
     TypeRequiresNameAndClassifier,
     ExpectedBodyAfterMethodSignature,
@@ -58,6 +56,10 @@ pub enum TokenParseError {
     ExpectedMethodName,
     ExpectedVoidIdentifier,
     ExpectedIdentifier,
+    CannotUseKeywordAsIdentifier(Keyword),
+    CannotUseNumberAsIdentifier(Number),
+    CannotUseStringAsIdentifier(String),
+    CannotUseCommentAsIdentifier(String),
 }
 
 pub fn parse_lexs(input: &[u8]) -> Result<Vec<Lex>, TokenParseError> {
@@ -137,11 +139,11 @@ fn next_token<'a>(
             if *index + 1 < lexes.len() {
                 *index = *index + 1;
                 match lexes.get(*index).unwrap() {
-                    Lex::Identifier(variable_name, _) => Ok(Literal::as_variable_def(
-                        name.clone(),
+                    Lex::Identifier(variable_name, _) => Ok(Box::new(Token::VariableDef(
+                        Literal::Identifier(name.clone()),
                         variable_name.clone(),
-                    )),
-                    Lex::Brace(Brace::Brace, BraceStatus::Open(len), level, pos) => {
+                    ))),
+                    Lex::Brace(Brace::Brace, BraceStatus::Open(len), level, _pos) => {
                         let parameters =
                             push_braced_block(&Brace::Brace, *len, *level, index, lexes, context)?;
                         Ok(Literal::as_parameterized(name.clone(), parameters))
@@ -215,7 +217,7 @@ fn next_token<'a>(
 fn push_impl_def(
     index: &mut usize,
     pos: &usize,
-    length: usize,
+    _length: usize,
     lexes: &Vec<Lex>,
     context: &mut TokenizerContext,
 ) -> Result<Box<Token>, TokenParseError> {
@@ -234,7 +236,7 @@ fn push_impl_def(
         _ => Err(TokenParseError::ExpectedIdentifier),
     }?;
     *index = *index + 1;
-    if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, pos)) = lexes.get(*index)
+    if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, _pos)) = lexes.get(*index)
     {
         let body = push_braced_block(&Brace::Bracket, *len, *level, index, lexes, context)?;
         Ok(Box::new(Token::Impl(identifier, body)))
@@ -246,7 +248,7 @@ fn push_impl_def(
 fn push_type_def(
     index: &mut usize,
     pos: &usize,
-    length: usize,
+    _length: usize,
     lexes: &Vec<Lex>,
     context: &mut TokenizerContext,
 ) -> Result<Box<Token>, TokenParseError> {
@@ -258,7 +260,7 @@ fn push_type_def(
         *index = *index + 1;
         if let Some(Lex::Keyword(classifier, classifier_pos)) = lexes.get(*index) {
             *index = *index + 1;
-            if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, pos)) =
+            if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, _pos)) =
                 lexes.get(*index)
             {
                 let body = push_braced_block(&Brace::Bracket, *len, *level, index, lexes, context)?;
@@ -270,6 +272,8 @@ fn push_type_def(
             } else {
                 Err(TokenParseError::ExpectedTypeBodyAfterTypeDef(
                     *classifier_pos,
+                    format!("{:?}", lexes.get(*index).unwrap()),
+                    format!("{:?}", lexes),
                 ))
             }
         } else {
@@ -335,17 +339,25 @@ fn push_braced_block(
 }
 
 impl Literal {
+    pub fn as_identifier_string(&self) -> Result<String, TokenParseError> {
+        match self {
+            Literal::Keyword(k) => Err(TokenParseError::CannotUseKeywordAsIdentifier(k.clone())),
+            Literal::Identifier(s) => Ok(s.clone()),
+            Literal::Number(n) => Err(TokenParseError::CannotUseNumberAsIdentifier(n.clone())),
+            Literal::String(s) => Err(TokenParseError::CannotUseStringAsIdentifier(s.clone())),
+            Literal::Comment(s) => Err(TokenParseError::CannotUseCommentAsIdentifier(s.clone())),
+            Literal::Void => Ok(("()").to_string()),
+        }
+    }
+
     fn as_identifier(ident: String) -> Box<Token> {
         Box::new(Token::Literal(Literal::Identifier(ident)))
     }
     fn as_keyword(keyword: Keyword) -> Box<Token> {
         Box::new(Token::Literal(Literal::Keyword(keyword)))
     }
-    fn as_variable_def(type_name: String, name: String) -> Box<Token> {
-        Box::new(Token::Literal(Literal::VariableDef(type_name, name)))
-    }
     fn as_parameterized(name: String, parameters: Box<Token>) -> Box<Token> {
-        Box::new(Token::Literal(Literal::Constructor(name, parameters)))
+        Box::new(Token::Constructor(name, parameters))
     }
 
     fn as_integer(i: i64) -> Box<Token> {
@@ -371,7 +383,7 @@ impl OperatorGroup {
             op, operand, parameter,
         )))
     }
-
+    /*
     fn as_tri(
         operand: Box<Token>,
         op: Operator,
@@ -381,7 +393,7 @@ impl OperatorGroup {
         Box::new(Token::Operator(OperatorGroup::TriOperator(
             op, operand, parameter1, parameter2,
         )))
-    }
+    } */
 
     fn as_uni_op(
         op: Operator,
@@ -407,7 +419,7 @@ impl OperatorGroup {
     fn as_bi_op(
         previous_token: Box<Token>,
         op: Operator,
-        pos: usize,
+        _pos: usize,
         lexes: &Vec<Lex>,
         index: &mut usize,
         context: &mut TokenizerContext,
@@ -482,14 +494,14 @@ mod tests {
             .get_scope(expected_scope_index)
             .unwrap()
             .assert_eq(vec![
-                Box::new(Token::Literal(Literal::VariableDef(
-                    "int".to_string(),
+                Box::new(Token::VariableDef(
+                    Literal::Identifier("int".to_string()),
                     "x".to_string(),
-                ))),
-                Box::new(Token::Literal(Literal::VariableDef(
-                    "int".to_string(),
+                )),
+                Box::new(Token::VariableDef(
+                    Literal::Identifier("int".to_string()),
                     "y".to_string(),
-                ))),
+                )),
             ]);
         Ok(())
     }

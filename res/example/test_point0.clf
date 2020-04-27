@@ -1,0 +1,23 @@
+
+//Data contains only data and cannot be mutated
+type Point data {
+  int x,
+  int y,
+}
+
+start () {
+  Point(1,2) => print();
+  //
+  //Below are two examples of the same functionality
+  //  Take an array of points, find the highest x, output that point and the value x
+  //The second approach is more complex, but shows how we want to use multiple functions at the same time in a stream
+  //The first uses an in-built function, so is cleaner
+  //
+  //(Point(1,2),Point(2,3),Point(3,4)) =>
+  //  highest ([(x,)]->x) =>
+  //  map (P ->(P, P.x)) => print ();
+  //
+  //(Point(1,2),Point(2,3),Point(3,4)) =>
+  //  (acc ([P, C] -> C.x > P.x ? C : P), map ([(x,_)]->x) ) =>
+  //  last () => print ();
+}

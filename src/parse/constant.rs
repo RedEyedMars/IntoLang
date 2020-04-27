@@ -3,7 +3,7 @@ pub enum Delimiter {
     Comma,
     Semicolon,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Keyword {
     Data,
     Comp,
@@ -15,7 +15,7 @@ pub enum Keyword {
     Inv,
     Intake,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Operator {
     Plus,
     PlusEquals,
@@ -57,6 +57,23 @@ pub enum Number {
 
     Byte(u8),
     Char(u8),
+}
+impl std::hash::Hash for Number {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
+        match self {
+            Number::Integer(i) => state.write_i64(*i),
+            Number::UnsignedInt(i) => state.write_u64(*i),
+            Number::Float(f) => {
+                let bytes = f.to_bits().to_be_bytes();
+                state.write_i64(i64::from_be_bytes(bytes))
+            }
+            Number::Byte(i) => state.write_u8(*i),
+            Number::Char(i) => state.write_u8(*i),
+        }
+    }
 }
 impl PartialEq for Number {
     fn eq(&self, other: &Self) -> bool {

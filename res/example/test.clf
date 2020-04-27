@@ -1,0 +1,58 @@
+
+//Data contain only data and cannot be mutated
+type Point data {
+  int x,
+  int y,
+}
+
+//Enums are similar to data, in that, they can only have a set number of values
+type Angle enum {
+  90, 180, 270, 360,
+}
+
+//Compositions can have methods and data, and are the sole carriers of actual data values
+//If a comp has a another comp within it, it inherits all the same methods of that class, and becomes the owner
+//  The only difference being that the user/comp calls those methods by invoking the field name. However, no actual instance of that other comp is made
+type Square comp {
+  Point[4] points,
+  string   name,
+}
+
+impl Square {
+  trans rotate(Angle angle)
+  inv (name)
+  {
+    points = angle? Angle.90  => points >> 1
+                    Angle.180 => points >> 2
+                    Angle.270 => points << 1
+                    Angle.360 => points
+  }
+
+  calc int   width()
+  inv (rotate(Angle.180), rotate(Angle.360))
+  {
+    points.max(Point.x) - points.min(Point.x)
+  }
+
+  calc int   height()
+  inv (rotate(Angle.180), rotate(Angle.360))
+  {
+    points.max(Point.y) - points.min(Point.y)
+  }
+
+  calc float area()
+  inv (rotate(_))
+  {
+    width() * height()
+  }
+}
+
+//Here we see an example of a composition within another composition
+//Note that in this example if another actor wanted to use the same Square as a Grid's member Square, they would need to do something like
+//  my_square = grid.squares[0][0]
+//  Which is a copy operation, yielding no control of grid's squares to the other context
+//However it is safe to use a method, such as grid.squares[0][0].area(), the Square is not copied in this context, since what is really happening is that the area method of the Grid is being called for it's inner data at address [0][0]
+//This is not the case for calls like grid.squares[0][0].area().as_string() where the values must initialize new string objects
+type Grid comp {
+  Square[8][8] squares,
+}

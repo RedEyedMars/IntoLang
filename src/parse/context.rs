@@ -57,6 +57,9 @@ impl ContextScope {
     pub fn get_brace_state(&self) -> BraceState {
         self.brace_state.clone()
     }
+    pub fn get_tokens(&self) -> &Vec<Box<Token>> {
+        &self.tokens
+    }
     pub fn assert_eq(&self, compare_vec: Vec<Box<Token>>) {
         assert_eq!(self.tokens, compare_vec);
     }
@@ -103,6 +106,9 @@ impl TokenizerContext {
     pub fn get_scope<'a>(&'a self, scope_index: usize) -> Option<&'a ContextScope> {
         self.scope.get(scope_index)
     }
+    pub fn get_mut_scope<'a>(&'a mut self, scope_index: usize) -> Option<&'a mut ContextScope> {
+        self.scope.get_mut(scope_index)
+    }
     pub fn pop_scope(&mut self) -> Result<(), TokenParseError> {
         match self.scope.get(self.current_scope).unwrap().state {
             ContextState::Root => Err(TokenParseError::ContextTriedToEscapeRootScope),
@@ -148,5 +154,11 @@ impl TokenizerContext {
 
     pub fn pop_token(&mut self) -> Option<Box<Token>> {
         self.scope.get_mut(self.current_scope).unwrap().tokens.pop()
+    }
+
+    pub fn println(&self) {
+        for s in self.scope.iter() {
+            s.println();
+        }
     }
 }

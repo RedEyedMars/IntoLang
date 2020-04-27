@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate failure;
-#[macro_use]
 extern crate approx;
 
 use std::env;

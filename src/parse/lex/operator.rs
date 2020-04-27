@@ -63,7 +63,7 @@ pub enum OperatorContinuation {
     DoubleColon(usize),
     ForwardSlash(usize),
     ForwardSlashEquals(usize),
-    BackSlash(usize),
+    //    BackSlash(usize),
     Percent(usize),
     Caret(usize),
     LessThan(usize),
@@ -133,9 +133,9 @@ impl OperatorContinuation {
             OperatorContinuation::DoubleColon(index) => {
                 Some(Lex::Operator(Operator::OfClass, index + 1))
             }
-            OperatorContinuation::BackSlash(index) => {
-                Some(Lex::Operator(Operator::Escape, index + 1))
-            }
+            //OperatorContinuation::BackSlash(index) => {
+            //    Some(Lex::Operator(Operator::Escape, index + 1))
+            //}
             OperatorContinuation::QuestionMark(index) => {
                 Some(Lex::Operator(Operator::QuestionMark, index + 1))
             }
@@ -207,7 +207,7 @@ impl OperatorContinuation {
                 _ => None,
             },
             OperatorContinuation::DoubleColon(_) => None,
-            OperatorContinuation::BackSlash(_) => None,
+            //OperatorContinuation::BackSlash(_) => None,
             OperatorContinuation::QuestionMark(_) => None,
         }
     }

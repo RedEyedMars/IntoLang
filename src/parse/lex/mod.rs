@@ -118,7 +118,7 @@ impl BraceContext {
                 Ok(stack.len() - 1usize)
             }
             BraceStatus::Close => {
-                if let Some(indexToInsert) = stack.pop() {
+                if let Some(index_to_insert) = stack.pop() {
                     match brace {
                         Brace::Brace => &mut self.paranthese_map,
                         Brace::Angle => &mut self.angles_map,
@@ -126,7 +126,7 @@ impl BraceContext {
                         Brace::Square => &mut self.squares_map,
                         _ => &mut self.paranthese_map,
                     }
-                    .insert(indexToInsert, lex_index);
+                    .insert(index_to_insert, lex_index);
                     Ok(stack.len() + 1usize)
                 } else {
                     Err(LexParseError::InvalidDelimiter(index))

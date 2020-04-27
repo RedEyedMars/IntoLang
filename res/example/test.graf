@@ -1,0 +1,30 @@
+(host)
+-> loop while (loop lambda ()=>(continue)/(error)?) => {
+     () => loop lambda := (continue) := True => loop lambda => host loop while => | False => (=>);
+                       |? (error=>)
+} => ()/(error)?
+-> file reader ("fileName") => {
+  fileName => host file open := (file) | (error=>)
+  (reader=>)
+    -> read () => file lines has next := True  => file lines next => | False => EOF =>
+    -> close () => file close := (error=>)  |* Success =>
+
+} => (reader)/(error)
+
+-> read file ("fileName") => {
+  fileName => host file reader := (reader) | (error=>)
+  [rows]
+  host loop while ->>
+    () => reader read := (line,EOF) line => rows append => EOF?! => | (error=>)
+  error type :=IO => error message => "Just an io error:= {message}" => host print |* (error=>)
+  [ rows => host map ->>
+    (row) => "," => row split =>
+  ] => (result=>)
+
+} => (result)/(error)
+
+-> host main() => {
+  "data.csv" => host read file := [many]
+                               | (error=>)
+  true => (result=>)
+} => (result)/(error)

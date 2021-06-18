@@ -25,9 +25,9 @@ pub enum Token {
     Block(Brace, usize),
     AgrandizedString(String, Box<Token>, String),
     Constructor(String, Box<Token>),
+    Array(Box<Token>),
     VariableDef(Literal, String),
-    TypeDef(Literal, Literal, Box<Token>), //Classifier, Identifier, Body
-    Impl(Literal, Box<Token>),             // Identifier, Body
+    TypeDef(Literal, Box<Token>), //Identifier, Body
     MethodDef(Keyword, String, Box<Token>, Box<Token>),
     Delimiter,
 }
@@ -47,8 +47,8 @@ pub enum TokenParseError {
     AttemptedToParseCloseBraceWithoutOpen(Brace),
     AttemptedToRetrieveScopeFromABraceStateOfNone,
     ExpectedIdentifierNameAfterTypeDef(usize),
-    ExpectedTypeClassifierAfterTypeDefIdentifier(usize),
-    ExpectedTypeBodyAfterTypeDef(usize, String, String),
+    ExpectedColonAfterTypeDefIdentifier(usize),
+    ExpectedBraceAfterTypeDef(usize, String),
     ExpectedImplBodyAfterImplDef(usize),
     TypeRequiresNameAndClassifier,
     ExpectedBodyAfterMethodSignature,
@@ -157,7 +157,6 @@ fn next_token<'a>(
                 Ok(Literal::as_identifier(name.clone()))
             }
         }
-        Lex::Keyword(Keyword::Impl, pos) => push_impl_def(index, pos, length, lexes, context),
         Lex::Keyword(Keyword::Calc, _) => {
             push_method_declaration(Keyword::Calc, index, lexes, context)
         }
@@ -181,6 +180,10 @@ fn next_token<'a>(
                 } else {
                     push_braced_block(brace, *len, *level, index, lexes, context)
                 }
+            } else if let Brace::Square = brace {
+                let parameters =
+                    push_braced_block(&Brace::Square, *len, *level, index, lexes, context)?;
+                Ok(Literal::as_array(parameters))
             } else {
                 push_braced_block(brace, *len, *level, index, lexes, context)
             }
@@ -214,37 +217,6 @@ fn next_token<'a>(
     }
 }
 
-fn push_impl_def(
-    index: &mut usize,
-    pos: &usize,
-    _length: usize,
-    lexes: &Vec<Lex>,
-    context: &mut TokenizerContext,
-) -> Result<Box<Token>, TokenParseError> {
-    println!("Impl def");
-    *index += 1;
-    let identifier = match lexes.get(*index) {
-        Some(Lex::Brace(Brace::Brace, BraceStatus::Open(_), _, _)) => {
-            *index += 1;
-            if let Some(Lex::Brace(Brace::Brace, BraceStatus::Close, _, _)) = lexes.get(*index) {
-                Ok(Literal::Void)
-            } else {
-                Err(TokenParseError::ExpectedVoidIdentifier)
-            }
-        }
-        Some(Lex::Identifier(name, _)) => Ok(Literal::Identifier(name.clone())),
-        _ => Err(TokenParseError::ExpectedIdentifier),
-    }?;
-    *index = *index + 1;
-    if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, _pos)) = lexes.get(*index)
-    {
-        let body = push_braced_block(&Brace::Bracket, *len, *level, index, lexes, context)?;
-        Ok(Box::new(Token::Impl(identifier, body)))
-    } else {
-        Err(TokenParseError::ExpectedImplBodyAfterImplDef(*pos))
-    }
-}
-
 fn push_type_def(
     index: &mut usize,
     pos: &usize,
@@ -258,26 +230,26 @@ fn push_type_def(
     *index = *index + 1;
     if let Some(Lex::Identifier(name, name_pos)) = lexes.get(*index) {
         *index = *index + 1;
-        if let Some(Lex::Keyword(classifier, classifier_pos)) = lexes.get(*index) {
+        if let Some(Lex::Operator(Operator::Of, classifier_pos)) = lexes.get(*index) {
             *index = *index + 1;
-            if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, _pos)) =
+            if let Some(Lex::Brace(Brace::Brace, BraceStatus::Open(len), level, _pos)) =
                 lexes.get(*index)
             {
-                let body = push_braced_block(&Brace::Bracket, *len, *level, index, lexes, context)?;
+                let body = push_braced_block(&Brace::Brace, *len, *level, index, lexes, context)?;
                 Ok(Box::new(Token::TypeDef(
-                    Literal::Keyword(*classifier),
                     Literal::Identifier(name.clone()),
                     body,
                 )))
             } else {
-                Err(TokenParseError::ExpectedTypeBodyAfterTypeDef(
+                Err(TokenParseError::ExpectedBraceAfterTypeDef(
                     *classifier_pos,
                     format!("{:?}", lexes.get(*index).unwrap()),
-                    format!("{:?}", lexes),
                 ))
             }
         } else {
-            Err(TokenParseError::ExpectedTypeClassifierAfterTypeDefIdentifier(*name_pos))
+            Err(TokenParseError::ExpectedColonAfterTypeDefIdentifier(
+                *name_pos,
+            ))
         }
     } else {
         Err(TokenParseError::ExpectedIdentifierNameAfterTypeDef(*pos))
@@ -293,22 +265,30 @@ fn push_method_declaration(
     *index += 1;
     if let Some(Lex::Identifier(name, _)) = lexes.get(*index) {
         *index += 1;
-        if let Some(Lex::Brace(Brace::Brace, BraceStatus::Open(len), level, _)) = lexes.get(*index)
-        {
-            let parameters = push_braced_block(&Brace::Brace, *len, *level, index, lexes, context)?;
+        if let Some(Lex::Operator(Operator::Of, _)) = lexes.get(*index) {
             *index += 1;
-            if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, _)) =
+            if let Some(Lex::Brace(Brace::Brace, BraceStatus::Open(len), level, _)) =
                 lexes.get(*index)
             {
-                let body = push_braced_block(&Brace::Bracket, *len, *level, index, lexes, context)?;
-                Ok(Box::new(Token::MethodDef(
-                    mode,
-                    name.clone(),
-                    parameters,
-                    body,
-                )))
+                let parameters =
+                    push_braced_block(&Brace::Brace, *len, *level, index, lexes, context)?;
+                *index += 1;
+                if let Some(Lex::Brace(Brace::Bracket, BraceStatus::Open(len), level, _)) =
+                    lexes.get(*index)
+                {
+                    let body =
+                        push_braced_block(&Brace::Bracket, *len, *level, index, lexes, context)?;
+                    Ok(Box::new(Token::MethodDef(
+                        mode,
+                        name.clone(),
+                        parameters,
+                        body,
+                    )))
+                } else {
+                    Err(TokenParseError::ExpectedBodyAfterMethodSignature)
+                }
             } else {
-                Err(TokenParseError::ExpectedBodyAfterMethodSignature)
+                Err(TokenParseError::ExpectedParametersAfterMethodName)
             }
         } else {
             Err(TokenParseError::ExpectedParametersAfterMethodName)
@@ -358,6 +338,9 @@ impl Literal {
     }
     fn as_parameterized(name: String, parameters: Box<Token>) -> Box<Token> {
         Box::new(Token::Constructor(name, parameters))
+    }
+    fn as_array(parameters: Box<Token>) -> Box<Token> {
+        Box::new(Token::Array(parameters))
     }
 
     fn as_integer(i: i64) -> Box<Token> {
@@ -442,37 +425,31 @@ mod tests {
     use super::*;
     #[test]
     fn test_parse_impl_tokens() -> Result<(), TokenParseError> {
-        let context = parse_tokens(b"impl () { calc start() { Point(1,2) => print () } }")?;
+        let context = parse_tokens(b"calc start: () { [Point(1,2)] => print; } ")?;
         context
             .get_scope(0)
-            .unwrap()
-            .assert_eq(vec![Box::new(Token::Impl(
-                Literal::Void,
-                Box::new(Token::Block(Brace::Bracket, 1)),
-            ))]);
-        context
-            .get_scope(1)
             .unwrap()
             .assert_eq(vec![Box::new(Token::MethodDef(
                 Keyword::Calc,
                 "start".to_string(),
-                Box::new(Token::Block(Brace::Brace, 2)),
-                Box::new(Token::Block(Brace::Bracket, 3)),
+                Box::new(Token::Block(Brace::Brace, 1)),
+                Box::new(Token::Block(Brace::Bracket, 2)),
             ))]);
         context
-            .get_scope(3)
+            .get_scope(2)
             .unwrap()
             .assert_eq(vec![Box::new(Token::Operator(OperatorGroup::BiOperator(
                 Operator::Into,
-                Literal::as_parameterized(
-                    "Point".to_string(),
-                    Box::new(Token::Block(Brace::Brace, 4)),
-                ),
-                Literal::as_parameterized(
-                    "print".to_string(),
-                    Box::new(Token::Block(Brace::Brace, 5)),
-                ),
+                Literal::as_array(Box::new(Token::Block(Brace::Square, 3))),
+                Literal::as_identifier("print".to_string()),
             )))]);
+        context
+            .get_scope(3)
+            .unwrap()
+            .assert_eq(vec![Literal::as_parameterized(
+                "Point".to_string(),
+                Box::new(Token::Block(Brace::Brace, 4)),
+            )]);
         context.get_scope(4).unwrap().assert_eq(vec![
             Box::new(Token::Literal(Literal::Number(Number::Integer(1)))),
             Box::new(Token::Literal(Literal::Number(Number::Integer(2)))),
@@ -481,28 +458,35 @@ mod tests {
     }
     #[test]
     fn test_parse_type_tokens() -> Result<(), TokenParseError> {
-        let context = parse_tokens(b"type Geheusie data { int x, int y, }")?;
+        let context = parse_tokens(b"type Geheusie: (int(x), int(y),)")?;
         let expected_scope_index = 1;
         context
             .current_scope()
             .assert_eq(vec![Box::new(Token::TypeDef(
-                Literal::Keyword(Keyword::Data),
                 Literal::Identifier("Geheusie".to_string()),
-                Box::new(Token::Block(Brace::Bracket, expected_scope_index)),
+                Box::new(Token::Block(Brace::Brace, expected_scope_index)),
             ))]);
         context
             .get_scope(expected_scope_index)
             .unwrap()
             .assert_eq(vec![
-                Box::new(Token::VariableDef(
-                    Literal::Identifier("int".to_string()),
-                    "x".to_string(),
+                Box::new(Token::Constructor(
+                    "int".to_string(),
+                    Box::new(Token::Block(Brace::Brace, expected_scope_index + 1)),
                 )),
-                Box::new(Token::VariableDef(
-                    Literal::Identifier("int".to_string()),
-                    "y".to_string(),
+                Box::new(Token::Constructor(
+                    "int".to_string(),
+                    Box::new(Token::Block(Brace::Brace, expected_scope_index + 2)),
                 )),
             ]);
+        context
+            .get_scope(expected_scope_index + 1)
+            .unwrap()
+            .assert_eq(vec![Literal::as_identifier("x".to_string())]);
+        context
+            .get_scope(expected_scope_index + 2)
+            .unwrap()
+            .assert_eq(vec![Literal::as_identifier("y".to_string())]);
         Ok(())
     }
     #[test]

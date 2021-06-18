@@ -234,7 +234,7 @@ pub fn record_declarations(
     let mut types = HashMap::new();
     for t in tokens.get_scope(scope).unwrap().get_tokens().iter() {
         match t.as_ref() {
-            Token::TypeDef(_classifier, identifier, _body) => {
+            Token::TypeDef(identifier, _body) => {
                 let type_name = literal_identifier(identifier)?;
                 types.insert(type_name.clone(), type_context.create_type(&type_name));
             }
@@ -244,7 +244,7 @@ pub fn record_declarations(
     type_context.record(types);
     for t in tokens.get_scope(scope).unwrap().get_tokens().iter() {
         match t.as_ref() {
-            Token::TypeDef(_classifier, identifier, body) => {
+            Token::TypeDef(identifier, body) => {
                 if let Literal::Identifier(_) = identifier {
                     if let Token::Block(_, inner_scope) = body.as_ref() {
                         for v in tokens.get_scope(*inner_scope).unwrap().get_tokens().iter() {
@@ -280,16 +280,16 @@ pub fn record_declarations(
 
 pub fn walk_method(_method: &AssembledMethod) {}
 
-//--------===============---------
-//--------=====TESTS=====---------
-//--------===============---------
+  //--------=====================----------\\
+ //---------========TESTS========-----------\\
+//----------=====================------------\\
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn test_assemble_declarations() -> Result<(), AssemblyError> {
-        assemble("res/example/test_point0.clf".to_string())?;
+        assemble("res/test/simple_0.geo".to_string())?;
         Ok(())
     }
 }
